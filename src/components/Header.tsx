@@ -9,15 +9,8 @@ export function Header() {
     if (isAuthenticated) {
       logout();
     } else {
-      // Mock login - in real app, this would open auth modal
-      login({
-        id: 'user1',
-        email: 'john@example.com',
-        name: 'John Doe',
-        avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=64&h=64&fit=crop',
-        createdAt: '2024-01-01',
-        updatedAt: '2024-01-01'
-      });
+      // Use real Supabase login
+      login();
     }
   };
 
@@ -85,8 +78,8 @@ export function Header() {
                 </div>
                 <div className="relative group">
                   <button className="flex items-center space-x-2 p-1 rounded-full hover:bg-gray-100 transition-colors">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt={user.name} className="h-8 w-8 rounded-full object-cover" />
+                    {user?.avatar_url ? (
+                      <img src={user.avatar_url} alt={user.name || ''} className="h-8 w-8 rounded-full object-cover" />
                     ) : (
                       <div className="h-8 w-8 bg-primary-500 rounded-full flex items-center justify-center">
                         <User className="h-5 w-5 text-white" />

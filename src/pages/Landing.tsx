@@ -4,7 +4,7 @@ import { useApp } from '../contexts/AppContext';
 import { AgentCard } from '../components/AgentCard';
 
 export function Landing() {
-  const { navigate, featuredAgents, isAuthenticated } = useApp();
+  const { navigate, featuredAgents, isAuthenticated, loading } = useApp();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-primary-50">

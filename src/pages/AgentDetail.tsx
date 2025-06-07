@@ -1,9 +1,9 @@
-// src/pages/AgentDetail.tsx
+// src/pages/AgentDetail.tsx - Fix the import
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Star, DollarSign, Play, User, Calendar, TrendingUp, MessageSquare, Share2, Zap, Lock } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { aiService } from '../lib/aiService';
-import { InputField } from '../types';
+import { InputField } from '../types/index'; // Changed from '../types'
 
 export function AgentDetail() {
   const { agents, selectedAgentId, navigate, isAuthenticated, user } = useApp();

@@ -1,4 +1,5 @@
 // src/lib/aiService.ts
+import React from 'react'
 import { supabase } from './supabase'
 
 interface AIResponse {
@@ -11,6 +12,7 @@ interface AgentExecution {
   agentId: string
   userId: string
   inputData: Record<string, any>
+  paymentMethod?: 'free' | 'credits' | 'direct'
 }
 
 class AIService {
@@ -24,7 +26,7 @@ class AIService {
     this.googleApiKey = import.meta.env.VITE_GOOGLE_API_KEY || ''
   }
 
-  async executeAgent({ agentId, userId, inputData }: AgentExecution): Promise<AIResponse> {
+  async executeAgent({ agentId, userId, inputData, paymentMethod = 'free' }: AgentExecution): Promise<AIResponse> {
     try {
       // Get agent details with AI model info
       const { data: agent, error: agentError } = await supabase

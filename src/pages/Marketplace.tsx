@@ -4,7 +4,7 @@ import { useApp } from '../contexts/AppContext';
 import { AgentCard } from '../components/AgentCard';
 
 export function Marketplace() {
-  const { agents } = useApp();
+  const { agents, loading } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('rating');
@@ -19,26 +19,26 @@ export function Marketplace() {
     { value: 'price-high', label: 'Price: High to Low' },
   ];
 
-  const filteredAgents = agents
+  const filteredAgents = (agents || [])
     .filter(agent => {
       const matchesSearch = agent.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            agent.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           agent.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
+                           (agent.tags || []).some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesCategory = selectedCategory === 'All' || agent.category === selectedCategory;
       return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
       switch (sortBy) {
         case 'rating':
-          return b.rating - a.rating;
+          return b.average_rating - a.average_rating;
         case 'uses':
-          return b.totalUses - a.totalUses;
+          return b.total_uses - a.total_uses;
         case 'recent':
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
         case 'price-low':
-          return a.pricePerUse - b.pricePerUse;
+          return a.price_per_use - b.price_per_use;
         case 'price-high':
-          return b.pricePerUse - a.pricePerUse;
+          return b.price_per_use - a.price_per_use;
         default:
           return 0;
       }
@@ -129,13 +129,13 @@ export function Marketplace() {
               <div className="flex items-center space-x-2">
                 <Star className="h-4 w-4 text-yellow-500 fill-current" />
                 <span className="text-gray-600">
-                  Avg rating: {(filteredAgents.reduce((acc, agent) => acc + agent.rating, 0) / filteredAgents.length).toFixed(1)}
+                  Avg rating: {filteredAgents.length > 0 ? (filteredAgents.reduce((acc, agent) => acc + agent.average_rating, 0) / filteredAgents.length).toFixed(1) : '0.0'}
                 </span>
               </div>
               <div className="flex items-center space-x-2">
                 <TrendingUp className="h-4 w-4 text-secondary-500" />
                 <span className="text-gray-600">
-                  {filteredAgents.reduce((acc, agent) => acc + agent.totalUses, 0).toLocaleString()} total uses
+                  {filteredAgents.reduce((acc, agent) => acc + agent.total_uses, 0).toLocaleString()} total uses
                 </span>
               </div>
             </div>
@@ -143,7 +143,17 @@ export function Marketplace() {
         </div>
 
         {/* Agents Grid */}
-        {filteredAgents.length > 0 ? (
+        {loading ? (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+                <div className="h-3 bg-gray-200 rounded w-full mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : filteredAgents.length > 0 ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredAgents.map((agent) => (
               <div key={agent.id} className="animate-scale-in">
