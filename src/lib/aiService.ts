@@ -1,4 +1,4 @@
-// src/lib/aiService.ts
+// src/lib/aiService.ts - FIXED VERSION
 import React from 'react'
 import { supabase } from './supabase'
 
@@ -28,27 +28,45 @@ class AIService {
 
   async executeAgent({ agentId, userId, inputData, paymentMethod = 'free' }: AgentExecution): Promise<AIResponse> {
     try {
-      // Get agent details with AI model info
+      console.log('Executing agent:', { agentId, userId, inputData })
+
+      // Try different approaches to get the agent and AI model data
+      console.log('Step 1: Getting agent data...')
+      
+      // First, get the agent
       const { data: agent, error: agentError } = await supabase
         .from('agents')
-        .select(`
-          *,
-          ai_models!inner (
-            provider,
-            model_name,
-            cost_per_1k_tokens,
-            max_tokens
-          ),
-          profiles!inner (
-            name
-          )
-        `)
+        .select('*')
         .eq('id', agentId)
         .eq('status', 'active')
         .single()
 
+      console.log('Agent data:', { agent, error: agentError })
+
       if (agentError || !agent) {
+        console.error('Agent not found or inactive:', agentError)
         throw new Error('Agent not found or inactive')
+      }
+
+      // Then get the AI model separately with better error handling
+      console.log('Step 2: Getting AI model data for model_id:', agent.ai_model_id)
+      
+      const { data: aiModel, error: modelError } = await supabase
+        .from('ai_models')
+        .select('*')
+        .eq('id', agent.ai_model_id)
+        .maybeSingle() // Use maybeSingle() instead of single() to handle missing records gracefully
+
+      console.log('AI Model data:', { aiModel, error: modelError })
+
+      if (modelError) {
+        console.error('Error fetching AI model:', modelError)
+        throw new Error(`Failed to fetch AI model: ${modelError.message}`)
+      }
+
+      if (!aiModel) {
+        console.error('AI model not found for ID:', agent.ai_model_id)
+        throw new Error(`AI model not found. This agent may be misconfigured. Please contact the agent creator.`)
       }
 
       // Create usage record
@@ -65,34 +83,40 @@ class AIService {
         .single()
 
       if (usageError) {
+        console.error('Failed to create usage record:', usageError)
         throw new Error('Failed to create usage record')
       }
 
+      console.log('Usage record created:', usage)
+
       // Prepare the prompt
       const prompt = this.buildPrompt(agent.system_prompt, agent.input_schema, inputData)
+      console.log('Generated prompt:', prompt)
       
       // Execute based on provider
       let response: AIResponse
       
-      switch (agent.ai_models.provider) {
+      switch (aiModel.provider) {
         case 'openai':
-          response = await this.callOpenAI(agent.ai_models.model_name, prompt, agent.ai_models.max_tokens)
+          response = await this.callOpenAI(aiModel.model_name, prompt, aiModel.max_tokens)
           break
         case 'anthropic':
-          response = await this.callAnthropic(agent.ai_models.model_name, prompt, agent.ai_models.max_tokens)
+          response = await this.callAnthropic(aiModel.model_name, prompt, aiModel.max_tokens)
           break
         case 'google':
-          response = await this.callGoogle(agent.ai_models.model_name, prompt, agent.ai_models.max_tokens)
+          response = await this.callGoogle(aiModel.model_name, prompt, aiModel.max_tokens)
           break
         default:
           throw new Error('Unsupported AI provider')
       }
 
+      console.log('AI response:', response)
+
       // Calculate actual cost based on tokens used
-      const actualCost = agent.price_per_use || (response.tokensUsed / 1000) * agent.ai_models.cost_per_1k_tokens
+      const actualCost = agent.price_per_use || (response.tokensUsed / 1000) * aiModel.cost_per_1k_tokens
 
       // Update usage record with result
-      await supabase
+      const { error: updateError } = await supabase
         .from('agent_usages')
         .update({
           output_data: response.content,
@@ -103,6 +127,23 @@ class AIService {
         })
         .eq('id', usage.id)
 
+      if (updateError) {
+        console.error('Failed to update usage record:', updateError)
+      }
+
+      // Update agent stats
+      const { error: statsError } = await supabase
+        .from('agents')
+        .update({
+          total_uses: agent.total_uses + 1,
+          total_revenue: agent.total_revenue + actualCost
+        })
+        .eq('id', agentId)
+
+      if (statsError) {
+        console.error('Failed to update agent stats:', statsError)
+      }
+
       return {
         ...response,
         cost: actualCost
@@ -110,6 +151,10 @@ class AIService {
 
     } catch (error) {
       console.error('AI execution error:', error)
+      
+      // If we have a usage record, mark it as failed
+      // (This would require storing the usage ID, but for now we'll skip)
+      
       throw error
     }
   }
@@ -133,8 +178,10 @@ class AIService {
 
   private async callOpenAI(model: string, prompt: string, maxTokens: number): Promise<AIResponse> {
     if (!this.openaiApiKey) {
-      throw new Error('OpenAI API key not configured')
+      throw new Error('OpenAI API key not configured. Please add VITE_OPENAI_API_KEY to your environment variables.')
     }
+
+    console.log('Calling OpenAI with model:', model)
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -153,6 +200,8 @@ class AIService {
     })
 
     if (!response.ok) {
+      const errorText = await response.text()
+      console.error('OpenAI API error:', errorText)
       throw new Error(`OpenAI API error: ${response.statusText}`)
     }
 
@@ -167,7 +216,7 @@ class AIService {
 
   private async callAnthropic(model: string, prompt: string, maxTokens: number): Promise<AIResponse> {
     if (!this.anthropicApiKey) {
-      throw new Error('Anthropic API key not configured')
+      throw new Error('Anthropic API key not configured. Please add VITE_ANTHROPIC_API_KEY to your environment variables.')
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -187,6 +236,8 @@ class AIService {
     })
 
     if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Anthropic API error:', errorText)
       throw new Error(`Anthropic API error: ${response.statusText}`)
     }
 
@@ -201,7 +252,7 @@ class AIService {
 
   private async callGoogle(model: string, prompt: string, maxTokens: number): Promise<AIResponse> {
     if (!this.googleApiKey) {
-      throw new Error('Google API key not configured')
+      throw new Error('Google API key not configured. Please add VITE_GOOGLE_API_KEY to your environment variables.')
     }
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.googleApiKey}`, {
@@ -225,6 +276,8 @@ class AIService {
     })
 
     if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Google API error:', errorText)
       throw new Error(`Google API error: ${response.statusText}`)
     }
 

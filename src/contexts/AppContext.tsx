@@ -1,98 +1,22 @@
-// src/contexts/AppContext.tsx
+// src/contexts/AppContext.tsx - Updated to use types from index.ts
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { User as SupabaseUser } from '@supabase/supabase-js'
-
-// Updated types to match database
-export interface User {
-  id: string
-  email: string
-  name: string | null
-  avatar_url: string | null
-  bio: string | null
-  website: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface AIModel {
-  id: string
-  provider: 'openai' | 'anthropic' | 'google'
-  model_name: string
-  display_name: string
-  description: string | null
-  cost_per_1k_tokens: number
-  is_free: boolean
-  is_available: boolean
-  requires_pro: boolean
-  max_tokens: number
-}
-
-export interface Agent {
-  id: string
-  creator_id: string
-  creator?: User
-  name: string
-  description: string
-  system_prompt: string
-  input_schema: InputField[]
-  ai_provider: 'openai' | 'anthropic' | 'google'
-  ai_model_id: string
-  ai_model?: AIModel
-  price_per_use: number
-  category: string
-  tags: string[]
-  status: 'draft' | 'active' | 'inactive'
-  is_featured: boolean
-  total_uses: number
-  total_revenue: number
-  average_rating: number
-  rating_count: number
-  created_at: string
-  updated_at: string
-}
-
-export interface InputField {
-  name: string
-  type: 'text' | 'textarea' | 'number' | 'select'
-  label: string
-  placeholder?: string
-  required: boolean
-  options?: string[]
-}
-
-export interface Usage {
-  id: string
-  user_id: string
-  agent_id: string
-  agent?: Agent
-  input_data: Record<string, any>
-  output_data: string | null
-  tokens_used: number | null
-  cost: number
-  status: 'pending' | 'completed' | 'failed'
-  error_message: string | null
-  created_at: string
-  completed_at: string | null
-}
-
-export type PageType = 'landing' | 'marketplace' | 'agent-detail' | 'create-agent' | 'dashboard' | 'profile'
-
-interface AppState {
-  currentPage: PageType
-  selectedAgentId?: string
-  user?: User
-  isAuthenticated: boolean
-  loading: boolean
-  agents: Agent[]
-  myAgents: Agent[]
-  myUsages: Usage[]
-  aiModels: AIModel[]
-}
+import { 
+  User, 
+  AIModel, 
+  Agent, 
+  InputField, 
+  Usage, 
+  PageType, 
+  AppState 
+} from '../types'
 
 interface AppContextValue extends AppState {
   navigate: (page: PageType, agentId?: string) => void
-  login: () => Promise<void>
+  loginWithGoogle: () => Promise<void>
+  loginWithEmail: (email: string, password: string) => Promise<void>
+  signUpWithEmail: (email: string, password: string, name: string) => Promise<void>
   logout: () => Promise<void>
   refreshAgents: () => Promise<void>
   refreshMyData: () => Promise<void>
@@ -257,42 +181,55 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadPublicData = async () => {
     try {
-      // Load active agents with creator info
-      const { data: agents, error: agentsError } = await supabase
+      console.log('Loading public data...')
+      
+      // Load active agents with creator info - using correct field names
+      const { data: agentsData, error: agentsError } = await supabase
         .from('agents')
         .select(`
           *,
-          profiles!inner (
+          profiles!creator_id (
             id,
             name,
             email,
-            avatar_url
+            avatar_url,
+            bio,
+            website,
+            created_at,
+            updated_at
           ),
-          ai_models!inner (
+          ai_models!ai_model_id (
+            id,
             provider,
+            model_name,
             display_name,
+            description,
             cost_per_1k_tokens,
-            is_free
+            is_free,
+            is_available,
+            requires_pro,
+            max_tokens
           )
         `)
         .eq('status', 'active')
+        .eq('ai_models.is_available', true)
         .order('total_uses', { ascending: false })
 
-      if (agentsError) throw agentsError
+      if (agentsError) {
+        console.error('Agents query error:', agentsError)
+        throw agentsError
+      }
 
-      const formattedAgents = agents.map(agent => ({
+      console.log('Raw agents data:', agentsData)
+
+      // Transform the data correctly
+      const formattedAgents = (agentsData || []).map(agent => ({
         ...agent,
         creator: agent.profiles,
         ai_model: agent.ai_models,
-        // Convert old format for compatibility
-        rating: agent.average_rating,
-        totalUses: agent.total_uses,
-        revenue: agent.total_revenue,
-        pricePerUse: agent.price_per_use,
-        createdAt: agent.created_at,
-        updatedAt: agent.updated_at
       }))
 
+      console.log('Formatted agents:', formattedAgents)
       dispatch({ type: 'SET_AGENTS', payload: formattedAgents })
 
       // Load AI models
@@ -303,7 +240,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .order('provider')
 
       if (modelsError) throw modelsError
-      dispatch({ type: 'SET_AI_MODELS', payload: models })
+      dispatch({ type: 'SET_AI_MODELS', payload: models || [] })
 
     } catch (error) {
       console.error('Error loading public data:', error)
@@ -316,11 +253,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .from('agents')
         .select(`
           *,
-          ai_models!inner (
+          ai_models!ai_model_id (
+            id,
             provider,
+            model_name,
             display_name,
+            description,
             cost_per_1k_tokens,
-            is_free
+            is_free,
+            is_available,
+            requires_pro,
+            max_tokens
           )
         `)
         .eq('creator_id', userId)
@@ -328,15 +271,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (error) throw error
 
-      const formattedAgents = agents.map(agent => ({
+      const formattedAgents = (agents || []).map(agent => ({
         ...agent,
         ai_model: agent.ai_models,
-        rating: agent.average_rating,
-        totalUses: agent.total_uses,
-        revenue: agent.total_revenue,
-        pricePerUse: agent.price_per_use,
-        createdAt: agent.created_at,
-        updatedAt: agent.updated_at
+        creator: undefined, // User's own agents don't need creator info
       }))
 
       dispatch({ type: 'SET_MY_AGENTS', payload: formattedAgents })
@@ -351,10 +289,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .from('agent_usages')
         .select(`
           *,
-          agents!inner (
+          agents!agent_id (
+            id,
             name,
             creator_id,
-            profiles!inner (name)
+            description,
+            category,
+            price_per_use,
+            profiles!creator_id (
+              id,
+              name,
+              email,
+              avatar_url
+            )
           )
         `)
         .eq('user_id', userId)
@@ -362,7 +309,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .limit(50)
 
       if (error) throw error
-      dispatch({ type: 'SET_MY_USAGES', payload: usages || [] })
+      
+      // Transform the data to match our Usage type
+      const formattedUsages = (usages || []).map(usage => ({
+        ...usage,
+        agent: usage.agents ? {
+          ...usage.agents,
+          creator: usage.agents.profiles
+        } : undefined
+      }))
+      
+      dispatch({ type: 'SET_MY_USAGES', payload: formattedUsages })
     } catch (error) {
       console.error('Error loading my usages:', error)
     }
@@ -372,7 +329,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'NAVIGATE', payload: { page, agentId } })
   }
 
-  const login = async () => {
+  const loginWithGoogle = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -382,8 +339,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
       })
       if (error) throw error
     } catch (error) {
-      console.error('Login error:', error)
-      alert('Login failed. Please try again.')
+      console.error('Google login error:', error)
+      throw error
+    }
+  }
+
+  const loginWithEmail = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      })
+      if (error) throw error
+    } catch (error) {
+      console.error('Email login error:', error)
+      throw error
+    }
+  }
+
+  const signUpWithEmail = async (email: string, password: string, name: string) => {
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name
+          }
+        }
+      })
+      if (error) throw error
+    } catch (error) {
+      console.error('Sign up error:', error)
+      throw error
     }
   }
 
@@ -415,7 +403,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: AppContextValue = {
     ...state,
     navigate,
-    login,
+    loginWithGoogle,
+    loginWithEmail,
+    signUpWithEmail,
     logout,
     refreshAgents,
     refreshMyData,

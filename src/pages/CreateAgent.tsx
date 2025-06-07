@@ -1,6 +1,6 @@
 // src/pages/CreateAgent.tsx
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Save, Eye, ArrowLeft, Zap, Crown } from 'lucide-react';
+import { Plus, Trash2, Save, Eye, ArrowLeft, Zap, Crown, AlertTriangle } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
 import { supabase } from '../lib/supabase';
 import { InputField, AIModel } from '../types';
@@ -342,44 +342,57 @@ export function CreateAgent() {
                 Choose the AI model that will power your agent. Different models have different capabilities and costs.
               </p>
 
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {availableModels.map((model) => (
-                  <div
-                    key={model.id}
-                    className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
-                      formData.aiModelId === model.id
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                    onClick={() => setFormData({ ...formData, aiModelId: model.id })}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-gray-900">{model.display_name}</h4>
-                      <div className="flex items-center space-x-1">
-                        {model.is_free ? (
-                          <span className="bg-secondary-100 text-secondary-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
-                            <Zap className="h-3 w-3" />
-                            <span>Free</span>
-                          </span>
-                        ) : model.requires_pro ? (
-                          <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
-                            <Crown className="h-3 w-3" />
-                            <span>Pro</span>
-                          </span>
-                        ) : null}
+              {availableModels.length === 0 ? (
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
+                  <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No AI Models Available</h3>
+                  <p className="text-gray-600 mb-4">
+                    No AI models are currently available in the system. Please contact an administrator to configure AI models before creating agents.
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    AI models need to be properly configured in the database for agents to function correctly.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {availableModels.map((model) => (
+                    <div
+                      key={model.id}
+                      className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                        formData.aiModelId === model.id
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                      onClick={() => setFormData({ ...formData, aiModelId: model.id })}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-semibold text-gray-900">{model.display_name}</h4>
+                        <div className="flex items-center space-x-1">
+                          {model.is_free ? (
+                            <span className="bg-secondary-100 text-secondary-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
+                              <Zap className="h-3 w-3" />
+                              <span>Free</span>
+                            </span>
+                          ) : model.requires_pro ? (
+                            <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
+                              <Crown className="h-3 w-3" />
+                              <span>Pro</span>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-2">{model.description}</p>
+                      <div className="text-xs text-gray-500">
+                        <p>Provider: {model.provider.toUpperCase()}</p>
+                        <p>Max tokens: {model.max_tokens.toLocaleString()}</p>
+                        {!model.is_free && (
+                          <p>Cost: ${model.cost_per_1k_tokens.toFixed(4)}/1k tokens</p>
+                        )}
                       </div>
                     </div>
-                    <p className="text-sm text-gray-600 mb-2">{model.description}</p>
-                    <div className="text-xs text-gray-500">
-                      <p>Provider: {model.provider.toUpperCase()}</p>
-                      <p>Max tokens: {model.max_tokens.toLocaleString()}</p>
-                      {!model.is_free && (
-                        <p>Cost: ${model.cost_per_1k_tokens.toFixed(4)}/1k tokens</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* System Prompt */}
