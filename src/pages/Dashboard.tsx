@@ -1,10 +1,68 @@
-import React from 'react';
-import { TrendingUp, DollarSign, Users, Eye, Plus, Star, Calendar } from 'lucide-react';
+// src/pages/Dashboard.tsx
+import React, { useEffect, useState } from 'react';
+import { TrendingUp, DollarSign, Users, Eye, Plus, Star, Calendar, BarChart3 } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
+import { supabase } from '../lib/supabase';
 import { AgentCard } from '../components/AgentCard';
 
+interface UserBalance {
+  available_balance: number;
+  pending_balance: number;
+  total_earned: number;
+}
+
 export function Dashboard() {
-  const { navigate, isAuthenticated, myAgents } = useApp();
+  const { navigate, isAuthenticated, myAgents, user, refreshMyData } = useApp();
+  const [balance, setBalance] = useState<UserBalance | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [recentUsages, setRecentUsages] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      loadDashboardData();
+    }
+  }, [isAuthenticated, user]);
+
+  const loadDashboardData = async () => {
+    if (!user) return;
+
+    try {
+      setLoading(true);
+
+      // Load user balance
+      const { data: balanceData } = await supabase
+        .from('user_balances')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      setBalance(balanceData);
+
+      // Load recent usages of user's agents
+      const { data: usages } = await supabase
+        .from('agent_usages')
+        .select(`
+          *,
+          agents!inner (
+            name,
+            creator_id
+          ),
+          profiles!inner (
+            name
+          )
+        `)
+        .eq('agents.creator_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      setRecentUsages(usages || []);
+
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isAuthenticated) {
     return (
@@ -23,10 +81,10 @@ export function Dashboard() {
     );
   }
 
-  const totalRevenue = myAgents.reduce((sum, agent) => sum + agent.revenue, 0);
-  const totalUses = myAgents.reduce((sum, agent) => sum + agent.totalUses, 0);
+  const totalRevenue = balance?.total_earned || 0;
+  const totalUses = myAgents.reduce((sum, agent) => sum + agent.total_uses, 0);
   const avgRating = myAgents.length > 0 
-    ? myAgents.reduce((sum, agent) => sum + agent.rating, 0) / myAgents.length 
+    ? myAgents.reduce((sum, agent) => sum + agent.average_rating, 0) / myAgents.length 
     : 0;
 
   return (
@@ -37,7 +95,7 @@ export function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Creator Dashboard</h1>
             <p className="text-gray-600 mt-2">
-              Manage your AI agents and track your earnings
+              Welcome back, {user?.name || 'Creator'}! Manage your AI agents and track your earnings.
             </p>
           </div>
           <button
@@ -58,12 +116,14 @@ export function Dashboard() {
               </div>
             </div>
             <div className="text-2xl font-bold text-gray-900 mb-1">
-              ${totalRevenue.toLocaleString()}
+              ${totalRevenue.toFixed(2)}
             </div>
-            <div className="text-sm text-gray-600">Total Revenue</div>
-            <div className="text-xs text-secondary-600 mt-1">
-              +12.3% from last month
-            </div>
+            <div className="text-sm text-gray-600">Total Earned</div>
+            {balance && (
+              <div className="text-xs text-secondary-600 mt-1">
+                ${balance.available_balance.toFixed(2)} available
+              </div>
+            )}
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -77,7 +137,7 @@ export function Dashboard() {
             </div>
             <div className="text-sm text-gray-600">Total Uses</div>
             <div className="text-xs text-primary-600 mt-1">
-              +8.7% from last month
+              Across all agents
             </div>
           </div>
 
@@ -92,7 +152,7 @@ export function Dashboard() {
             </div>
             <div className="text-sm text-gray-600">Active Agents</div>
             <div className="text-xs text-accent-600 mt-1">
-              2 published this month
+              {myAgents.filter(a => a.status === 'active').length} published
             </div>
           </div>
 
@@ -103,44 +163,87 @@ export function Dashboard() {
               </div>
             </div>
             <div className="text-2xl font-bold text-gray-900 mb-1">
-              {avgRating.toFixed(1)}
+              {avgRating > 0 ? avgRating.toFixed(1) : '--'}
             </div>
             <div className="text-sm text-gray-600">Average Rating</div>
             <div className="text-xs text-yellow-600 mt-1">
-              Across all agents
+              {myAgents.reduce((sum, agent) => sum + agent.rating_count, 0)} total reviews
             </div>
           </div>
         </div>
 
-        {/* Revenue Chart */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              Revenue Overview
-            </h2>
-            <div className="flex items-center space-x-4">
-              <button className="px-4 py-2 text-primary-600 bg-primary-50 rounded-lg font-medium">
-                Last 30 days
+        {/* Quick Actions & Recent Activity */}
+        <div className="grid lg:grid-cols-2 gap-8 mb-8">
+          {/* Quick Actions */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+            <div className="space-y-3">
+              <button
+                onClick={() => navigate('create-agent')}
+                className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <Plus className="h-5 w-5 text-primary-600" />
+                  <span className="font-medium text-gray-900">Create New Agent</span>
+                </div>
+                <span className="text-gray-400">→</span>
               </button>
-              <button className="px-4 py-2 text-gray-600 hover:text-primary-600 transition-colors">
-                Last 3 months
+              
+              <button
+                onClick={() => navigate('marketplace')}
+                className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <Eye className="h-5 w-5 text-secondary-600" />
+                  <span className="font-medium text-gray-900">Browse Marketplace</span>
+                </div>
+                <span className="text-gray-400">→</span>
               </button>
-              <button className="px-4 py-2 text-gray-600 hover:text-primary-600 transition-colors">
-                All time
+
+              <button
+                onClick={refreshMyData}
+                className="w-full flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <BarChart3 className="h-5 w-5 text-accent-600" />
+                  <span className="font-medium text-gray-900">Refresh Data</span>
+                </div>
+                <span className="text-gray-400">→</span>
               </button>
             </div>
           </div>
-          
-          {/* Mock Chart */}
-          <div className="h-64 bg-gradient-to-br from-primary-50 to-secondary-50 rounded-lg flex items-end justify-center p-8">
-            <div className="text-center">
-              <TrendingUp className="h-12 w-12 text-primary-600 mx-auto mb-4" />
-              <p className="text-gray-600">
-                Revenue chart would be displayed here
-              </p>
-              <p className="text-sm text-gray-500 mt-2">
-                Integration with charting library needed
-              </p>
+
+          {/* Recent Activity */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+            <div className="space-y-3">
+              {recentUsages.length > 0 ? (
+                recentUsages.slice(0, 5).map((usage) => (
+                  <div key={usage.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900">{usage.agents.name}</p>
+                      <p className="text-sm text-gray-600">Used by {usage.profiles.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {new Date(usage.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-secondary-600">
+                        +${usage.cost.toFixed(2)}
+                      </p>
+                      <p className="text-xs text-gray-500 capitalize">
+                        {usage.status}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <TrendingUp className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500">No recent activity</p>
+                  <p className="text-sm text-gray-400">Your agent usage will appear here</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -152,16 +255,23 @@ export function Dashboard() {
               My Agents ({myAgents.length})
             </h2>
             <div className="flex items-center space-x-4">
-              <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+              <select 
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                onChange={refreshMyData}
+              >
                 <option>All Agents</option>
                 <option>Active</option>
-                <option>Inactive</option>
                 <option>Draft</option>
               </select>
             </div>
           </div>
 
-          {myAgents.length > 0 ? (
+          {loading ? (
+            <div className="text-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
+              <p className="text-gray-500 mt-4">Loading your agents...</p>
+            </div>
+          ) : myAgents.length > 0 ? (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {myAgents.map((agent) => (
                 <AgentCard key={agent.id} agent={agent} showRevenue={true} />

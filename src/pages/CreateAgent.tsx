@@ -1,20 +1,37 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, Save, Eye, ArrowLeft } from 'lucide-react';
+// src/pages/CreateAgent.tsx
+import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Save, Eye, ArrowLeft, Zap, Crown } from 'lucide-react';
 import { useApp } from '../contexts/AppContext';
-import { InputField } from '../types';
+import { supabase } from '../lib/supabase';
+import { InputField, AIModel } from '../types';
 
 export function CreateAgent() {
-  const { navigate, isAuthenticated } = useApp();
+  const { navigate, isAuthenticated, user, aiModels, refreshMyData } = useApp();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     systemPrompt: '',
     category: '',
     tags: '',
-    pricePerUse: 1.99,
+    pricePerUse: 0,
+    aiModelId: '',
+    status: 'draft' as 'draft' | 'active'
   });
   const [inputFields, setInputFields] = useState<InputField[]>([]);
   const [isPreview, setIsPreview] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  const availableModels = aiModels.filter(model => model.is_available);
+  const selectedModel = availableModels.find(m => m.id === formData.aiModelId);
+
+  useEffect(() => {
+    // Set default to free GPT-3.5 model
+    const freeModel = availableModels.find(m => m.is_free);
+    if (freeModel && !formData.aiModelId) {
+      setFormData(prev => ({ ...prev, aiModelId: freeModel.id }));
+    }
+  }, [availableModels]);
 
   if (!isAuthenticated) {
     return (
@@ -54,14 +71,56 @@ export function CreateAgent() {
     setInputFields(inputFields.filter((_, i) => i !== index));
   };
 
-  const handleSave = () => {
-    // In a real app, this would make an API call
-    console.log('Saving agent:', { ...formData, inputFields });
-    alert('Agent created successfully!');
-    navigate('dashboard');
+  const handleSave = async () => {
+    if (!user) return;
+
+    setIsSubmitting(true);
+    setError('');
+
+    try {
+      // Validate required fields
+      if (!formData.name || !formData.description || !formData.systemPrompt || !formData.category || !formData.aiModelId) {
+        throw new Error('Please fill in all required fields');
+      }
+
+      // Prepare agent data
+      const agentData = {
+        creator_id: user.id,
+        name: formData.name,
+        description: formData.description,
+        system_prompt: formData.systemPrompt,
+        input_schema: inputFields,
+        ai_model_id: formData.aiModelId,
+        ai_provider: selectedModel?.provider || 'openai',
+        price_per_use: formData.pricePerUse,
+        category: formData.category,
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+        status: formData.status
+      };
+
+      const { data, error } = await supabase
+        .from('agents')
+        .insert(agentData)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Refresh user's agents
+      await refreshMyData();
+
+      alert('Agent created successfully!');
+      navigate('dashboard');
+
+    } catch (err: any) {
+      console.error('Error creating agent:', err);
+      setError(err.message || 'Failed to create agent');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const isFormValid = formData.name && formData.description && formData.systemPrompt && formData.category;
+  const isFormValid = formData.name && formData.description && formData.systemPrompt && formData.category && formData.aiModelId;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -87,14 +146,20 @@ export function CreateAgent() {
             </button>
             <button
               onClick={handleSave}
-              disabled={!isFormValid}
+              disabled={!isFormValid || isSubmitting}
               className="flex items-center space-x-2 bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
             >
               <Save className="h-4 w-4" />
-              <span>Save Agent</span>
+              <span>{isSubmitting ? 'Saving...' : 'Save Agent'}</span>
             </button>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-700">{error}</p>
+          </div>
+        )}
 
         {isPreview ? (
           /* Preview Mode */
@@ -113,12 +178,21 @@ export function CreateAgent() {
                 <h3 className="text-xl font-semibold text-gray-900 mb-4">Agent Details</h3>
                 <div className="space-y-4">
                   <div>
+                    <span className="text-sm font-medium text-gray-500">AI Model:</span>
+                    <p className="text-gray-900">{selectedModel?.display_name || 'Not selected'}</p>
+                    {selectedModel && (
+                      <p className="text-sm text-gray-500">{selectedModel.description}</p>
+                    )}
+                  </div>
+                  <div>
                     <span className="text-sm font-medium text-gray-500">Category:</span>
                     <p className="text-gray-900">{formData.category || 'Not specified'}</p>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-500">Price per use:</span>
-                    <p className="text-gray-900 text-lg font-semibold">${formData.pricePerUse}</p>
+                    <p className="text-gray-900 text-lg font-semibold">
+                      {formData.pricePerUse > 0 ? `$${formData.pricePerUse}` : 'Free'}
+                    </p>
                   </div>
                   <div>
                     <span className="text-sm font-medium text-gray-500">Tags:</span>
@@ -195,6 +269,8 @@ export function CreateAgent() {
                     <option value="Marketing">Marketing</option>
                     <option value="Analytics">Analytics</option>
                     <option value="Design">Design</option>
+                    <option value="Business">Business</option>
+                    <option value="Education">Education</option>
                   </select>
                 </div>
               </div>
@@ -220,24 +296,89 @@ export function CreateAgent() {
                   <input
                     type="number"
                     step="0.01"
-                    min="0.01"
+                    min="0"
+                    placeholder="0.00 for free"
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     value={formData.pricePerUse}
-                    onChange={(e) => setFormData({ ...formData, pricePerUse: parseFloat(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, pricePerUse: parseFloat(e.target.value) || 0 })}
                   />
+                  <p className="text-sm text-gray-500 mt-1">Set to 0 for free agents</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tags (comma separated)
+                    Status
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., writing, content, blog, seo"
+                  <select
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                    value={formData.tags}
-                    onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                  />
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as 'draft' | 'active' })}
+                  >
+                    <option value="draft">Draft (not visible to users)</option>
+                    <option value="active">Active (visible in marketplace)</option>
+                  </select>
                 </div>
+              </div>
+
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tags (comma separated)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., writing, content, blog, seo"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  value={formData.tags}
+                  onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* AI Model Selection */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                AI Model Selection *
+              </h2>
+              <p className="text-gray-600 mb-6">
+                Choose the AI model that will power your agent. Different models have different capabilities and costs.
+              </p>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {availableModels.map((model) => (
+                  <div
+                    key={model.id}
+                    className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                      formData.aiModelId === model.id
+                        ? 'border-primary-500 bg-primary-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                    onClick={() => setFormData({ ...formData, aiModelId: model.id })}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-gray-900">{model.display_name}</h4>
+                      <div className="flex items-center space-x-1">
+                        {model.is_free ? (
+                          <span className="bg-secondary-100 text-secondary-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
+                            <Zap className="h-3 w-3" />
+                            <span>Free</span>
+                          </span>
+                        ) : model.requires_pro ? (
+                          <span className="bg-purple-100 text-purple-800 px-2 py-1 rounded text-xs flex items-center space-x-1">
+                            <Crown className="h-3 w-3" />
+                            <span>Pro</span>
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-2">{model.description}</p>
+                    <div className="text-xs text-gray-500">
+                      <p>Provider: {model.provider.toUpperCase()}</p>
+                      <p>Max tokens: {model.max_tokens.toLocaleString()}</p>
+                      {!model.is_free && (
+                        <p>Cost: ${model.cost_per_1k_tokens.toFixed(4)}/1k tokens</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
